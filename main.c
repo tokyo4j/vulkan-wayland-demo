@@ -57,7 +57,7 @@ struct geometry {
 
 struct window_image {
 	VkImageView image_view;
-	VkFramebuffer framebuffer;
+	VkImage image;
 	VkSemaphore render_done;
 };
 
@@ -90,7 +90,6 @@ struct window_vulkan {
 	VkQueue queue;
 	uint32_t queue_family;
 
-	VkRenderPass renderpass;
 	VkDescriptorPool descriptor_pool;
 	VkCommandPool cmd_pool;
 
@@ -233,28 +232,6 @@ create_image_view(VkDevice device, VkImage image, VkFormat format,
 }
 
 static void
-create_framebuffer(VkDevice device, VkRenderPass renderpass,
-	VkImageView image_view, uint32_t width, uint32_t height,
-	VkFramebuffer *framebuffer)
-{
-	VkResult result;
-
-	const VkFramebufferCreateInfo framebuffer_create_info = {
-		.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-		.renderPass = renderpass,
-		.attachmentCount = 1,
-		.pAttachments = &image_view,
-		.width = width,
-		.height = height,
-		.layers = 1,
-	};
-
-	result = vkCreateFramebuffer(device, &framebuffer_create_info, NULL,
-		framebuffer);
-	check_vk_success(result, "vkCreateFramebuffer");
-}
-
-static void
 create_swapchain(struct window *window)
 {
 	VkSurfaceCapabilitiesKHR surface_caps;
@@ -339,10 +316,7 @@ create_swapchain(struct window *window)
 
 		create_image_view(window->vk.dev, swapchain_images[i],
 			window->vk.format, &window->vk.images[i].image_view);
-		create_framebuffer(window->vk.dev, window->vk.renderpass,
-			window->vk.images[i].image_view,
-			window->buffer_size.width, window->buffer_size.height,
-			&window->vk.images[i].framebuffer);
+		window->vk.images[i].image = swapchain_images[i];
 
 		const VkSemaphoreCreateInfo semaphore_create_info = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
@@ -362,8 +336,6 @@ destroy_swapchain(struct window *window)
 	for (uint32_t i = 0; i < window->vk.image_count; i++) {
 		vkDestroySemaphore(window->vk.dev,
 			window->vk.images[i].render_done, NULL);
-		vkDestroyFramebuffer(window->vk.dev,
-			window->vk.images[i].framebuffer, NULL);
 		vkDestroyImageView(window->vk.dev,
 			window->vk.images[i].image_view, NULL);
 	}
@@ -557,39 +529,6 @@ create_descriptor_set(struct window *window, struct window_frame *frame)
 }
 
 static void
-create_renderpass(struct window *window)
-{
-	VkResult result;
-
-	const VkAttachmentDescription attachment_description = {
-		.format = window->vk.format,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-	};
-	const VkAttachmentReference attachment_reference = {.attachment = 0,
-		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL};
-	const VkSubpassDescription subpass_description = {
-		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-		.colorAttachmentCount = 1,
-		.pColorAttachments = &attachment_reference,
-	};
-	const VkRenderPassCreateInfo renderpass_create_info = {
-		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-		.attachmentCount = 1,
-		.pAttachments = &attachment_description,
-		.subpassCount = 1,
-		.pSubpasses = &subpass_description,
-	};
-
-	result = vkCreateRenderPass(window->vk.dev, &renderpass_create_info,
-		NULL, &window->vk.renderpass);
-	check_vk_success(result, "vkCreateRenderPass");
-}
-
-static void
 create_descriptor_set_layout(struct window *window)
 {
 	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
@@ -730,6 +669,13 @@ create_pipeline(struct window *window)
 			},
 	};
 
+	const VkPipelineRenderingCreateInfo pipeline_rendering_info = {
+		.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+		.viewMask = 0,
+		.colorAttachmentCount = 1,
+		.pColorAttachmentFormats = (VkFormat[]){window->vk.format},
+	};
+
 	const VkPipelineLayoutCreateInfo pipeline_layout_create_info = {
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.setLayoutCount = 1,
@@ -769,10 +715,9 @@ create_pipeline(struct window *window)
 		.pColorBlendState = &pipeline_color_blend_state_create_info,
 		.pDynamicState = &pipeline_dynamic_state_create_info,
 
+		.pNext = &pipeline_rendering_info,
 		.flags = 0,
 		.layout = pipeline->pipeline_layout,
-		.renderPass = window->vk.renderpass,
-		.subpass = 0,
 	};
 	result = vkCreateGraphicsPipelines(window->vk.dev, VK_NULL_HANDLE, 1,
 		&graphics_pipeline_create_info, NULL, &pipeline->pipeline);
@@ -916,7 +861,7 @@ create_instance(struct window *window)
 	const VkApplicationInfo app_info = {
 		.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
 		.pApplicationName = "simple-vulkan",
-		.apiVersion = VK_MAKE_VERSION(1, 0, 0),
+		.apiVersion = VK_MAKE_VERSION(1, 3, 0),
 	};
 
 	const VkInstanceCreateInfo inst_create_info = {
@@ -1061,12 +1006,23 @@ create_device(struct window *window)
 		.pQueuePriorities = (float[]){1.0f},
 	};
 
+	VkPhysicalDeviceDynamicRenderingFeatures dyn_enable = {
+		.sType =
+			VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES,
+		.dynamicRendering = VK_TRUE,
+	};
+	VkPhysicalDeviceFeatures2 features2_enable = {
+		.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2,
+		.pNext = &dyn_enable,
+	};
+
 	const VkDeviceCreateInfo device_create_info = {
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		.queueCreateInfoCount = 1,
 		.pQueueCreateInfos = &device_queue_info,
 		.enabledExtensionCount = num_device_extns,
 		.ppEnabledExtensionNames = device_extns,
+		.pNext = &features2_enable,
 	};
 
 	result = vkCreateDevice(window->vk.phys_dev, &device_create_info, NULL,
@@ -1112,7 +1068,6 @@ init_vulkan(struct window *window)
 
 	window->vk.format = choose_surface_format(window);
 
-	create_renderpass(window);
 	create_descriptor_set_layout(window);
 	create_pipeline(window);
 
@@ -1203,7 +1158,6 @@ fini_vulkan(struct window *window)
 	vkDestroyPipeline(window->vk.dev, pipeline->pipeline, NULL);
 	vkDestroyDescriptorSetLayout(window->vk.dev,
 		pipeline->descriptor_set_layout, NULL);
-	vkDestroyRenderPass(window->vk.dev, window->vk.renderpass, NULL);
 
 	vkDestroyDescriptorPool(window->vk.dev, window->vk.descriptor_pool,
 		NULL);
@@ -1340,22 +1294,54 @@ draw_triangle(struct window *window, struct window_frame *frame,
 	result = vkBeginCommandBuffer(cmd_buffer, &command_buffer_begin_info);
 	check_vk_success(result, "vkBeginCommandBuffer");
 
-	const VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 0.5f}}};
-	const VkRenderPassBeginInfo renderpass_begin_info = {
-		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-		.renderPass = window->vk.renderpass,
-		.framebuffer = image->framebuffer,
-		.renderArea.offset = {0, 0},
-		.renderArea.extent =
+	const VkImageMemoryBarrier barrier_to_color = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image->image,
+		.subresourceRange =
 			{
-				window->buffer_size.width,
-				window->buffer_size.height,
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
 			},
-		.clearValueCount = 1,
-		.pClearValues = &clear_color,
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
 	};
-	vkCmdBeginRenderPass(cmd_buffer, &renderpass_begin_info,
-		VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdPipelineBarrier(cmd_buffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, 0, 0, NULL, 0,
+		NULL, 1, &barrier_to_color);
+
+	const VkClearValue clear_color = {{{0.0f, 0.0f, 0.0f, 0.5f}}};
+	const VkRenderingAttachmentInfo color_attachment = {
+		.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+		.imageView = image->image_view,
+		.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		.resolveMode = VK_RESOLVE_MODE_NONE,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+		.clearValue = clear_color,
+	};
+	const VkRenderingInfo rendering_info = {
+		.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+		.renderArea =
+			{
+				.offset = {0, 0},
+				.extent =
+					{
+						window->buffer_size.width,
+						window->buffer_size.height,
+					},
+			},
+		.layerCount = 1,
+		.colorAttachmentCount = 1,
+		.pColorAttachments = &color_attachment,
+	};
+	vkCmdBeginRendering(cmd_buffer, &rendering_info);
 
 	const VkBuffer buffers[] = {
 		window->vk.vertex_buffer.buffer,
@@ -1398,7 +1384,30 @@ draw_triangle(struct window *window, struct window_frame *frame,
 
 	vkCmdDraw(cmd_buffer, 3, 1, 0, 0);
 
-	vkCmdEndRenderPass(cmd_buffer);
+	vkCmdEndRendering(cmd_buffer);
+
+	const VkImageMemoryBarrier barrier_to_present = {
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image->image,
+		.subresourceRange =
+			{
+				.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+				.baseMipLevel = 0,
+				.levelCount = 1,
+				.baseArrayLayer = 0,
+				.layerCount = 1,
+			},
+		.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+		.dstAccessMask = 0,
+	};
+	vkCmdPipelineBarrier(cmd_buffer,
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1,
+		&barrier_to_present);
 
 	result = vkEndCommandBuffer(cmd_buffer);
 	check_vk_success(result, "vkEndCommandBuffer");
