@@ -1,0 +1,5 @@
+/main
+*.spv.h
+*-protocol.h
+*-protocol.c
+compile_commands.json

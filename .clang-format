@@ -1,0 +1,14 @@
+BasedOnStyle: LLVM
+UseTab: Always
+IndentWidth: 8
+ContinuationIndentWidth: 8
+AlignAfterOpenBracket: DontAlign
+AlignOperands: false
+AlwaysBreakAfterDefinitionReturnType: true
+BreakBeforeBinaryOperators: NonAssignment
+BreakBeforeBraces: Linux
+IndentCaseLabels: false
+PenaltyBreakOpenParenthesis: 100
+PenaltyReturnTypeOnItsOwnLine: 500
+SpaceBeforeParens: ControlStatementsExceptControlMacros
+ForEachMacros: ['wl_list_for_each', 'wl_array_for_each']
