@@ -39,6 +39,7 @@
 			abort();                                               \
 		}                                                              \
 	}
+#define MASK_CONTAINS(mask, flag) (((mask) & (flag)) == (flag))
 
 struct window;
 struct seat;
@@ -436,12 +437,12 @@ find_memory_type(struct window *window, uint32_t allowed,
 	vkGetPhysicalDeviceMemoryProperties(window->vk.phys_dev,
 		&mem_properties);
 
-	for (unsigned i = 0;
-		(1u << i) <= allowed && i <= mem_properties.memoryTypeCount;
-		++i) {
-		if ((allowed & (1u << i))
-			&& (mem_properties.memoryTypes[i].propertyFlags
-				& properties)) {
+	for (unsigned int i = 0; i < mem_properties.memoryTypeCount; ++i) {
+		bool is_allowed = (allowed & (1u << i));
+		bool has_properties = MASK_CONTAINS(
+			mem_properties.memoryTypes[i].propertyFlags,
+			properties);
+		if (is_allowed && has_properties) {
 			return i;
 		}
 	}
