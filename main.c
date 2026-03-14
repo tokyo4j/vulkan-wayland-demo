@@ -267,8 +267,6 @@ create_swapchain(struct window *window)
 		&& min_image_count > surface_caps.maxImageCount)
 		min_image_count = surface_caps.maxImageCount;
 
-	const VkExtent2D swapchain_extent = {
-		window->buffer_size.width, window->buffer_size.height};
 	VkSwapchainCreateInfoKHR swapchain_create_info = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
 		.flags = 0,
@@ -276,7 +274,11 @@ create_swapchain(struct window *window)
 		.minImageCount = min_image_count,
 		.imageFormat = window->vk.format,
 		.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
-		.imageExtent = swapchain_extent,
+		.imageExtent =
+			(VkExtent2D){
+				.width = window->buffer_size.width,
+				.height = window->buffer_size.height,
+			},
 		.imageArrayLayers = 1,
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
@@ -595,7 +597,8 @@ create_pipeline(struct window *window)
 					.format = VK_FORMAT_R32G32B32_SFLOAT,
 					.offset = 0,
 				},
-			}};
+			},
+	};
 	const VkPipelineInputAssemblyStateCreateInfo
 		pipeline_input_assembly_state_create_info = {
 			.sType =
@@ -745,17 +748,13 @@ static void
 create_descriptor_pool(struct window *window, VkDescriptorPool *descriptor_pool,
 	uint32_t base_count, uint32_t maxsets)
 {
-	const VkDescriptorPoolSize pool_sizes[] = {
-		{
-			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.descriptorCount = 1 * base_count,
-		},
-	};
-
 	const VkDescriptorPoolCreateInfo pool_info = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
-		.poolSizeCount = ARRAY_SIZE(pool_sizes),
-		.pPoolSizes = pool_sizes,
+		.poolSizeCount = 1,
+		.pPoolSizes = (VkDescriptorPoolSize[]){{
+			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = 1 * base_count,
+		}},
 		.maxSets = maxsets,
 	};
 
