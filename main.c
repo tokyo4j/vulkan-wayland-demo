@@ -27,6 +27,19 @@
 #define MAX_NUM_IMAGES 5
 #define MAX_CONCURRENT_FRAMES 2
 
+#define VK_CHECK(func)                                                         \
+	{                                                                      \
+		const VkResult __result = func;                                \
+		if (__result != VK_SUCCESS) {                                  \
+			fprintf(stderr,                                        \
+				"%s %d %s Error: %s failed with VkResult "     \
+				"%d\n",                                        \
+				__FILE__, __LINE__, __func__, #func,           \
+				__result);                                     \
+			abort();                                               \
+		}                                                              \
+	}
+
 struct window;
 struct seat;
 
@@ -150,20 +163,6 @@ struct window_output {
 	struct wl_list link; /* struct window::window_outputs */
 };
 
-static inline void
-_check_vk_success(const char *file, int line, const char *func, VkResult result,
-	const char *vk_func)
-{
-	if (result == VK_SUCCESS)
-		return;
-
-	fprintf(stderr, "%s %d %s Error: %s failed with VkResult %d\n", file,
-		line, func, vk_func, result);
-	abort();
-}
-#define check_vk_success(result, vk_func)                                      \
-	_check_vk_success(__FILE__, __LINE__, __func__, (result), (vk_func))
-
 static void
 pnext(void *base, void *next)
 {
@@ -211,8 +210,6 @@ static void
 create_image_view(VkDevice device, VkImage image, VkFormat format,
 	VkImageView *image_view)
 {
-	VkResult result;
-
 	const VkImageViewCreateInfo view_info = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
 		.image = image,
@@ -225,8 +222,7 @@ create_image_view(VkDevice device, VkImage image, VkFormat format,
 		.subresourceRange.layerCount = 1,
 	};
 
-	result = vkCreateImageView(device, &view_info, NULL, image_view);
-	check_vk_success(result, "vkCreateImageView");
+	VK_CHECK(vkCreateImageView(device, &view_info, NULL, image_view));
 }
 
 static void
@@ -311,8 +307,6 @@ create_swapchain(struct window *window)
 
 	assert(window->vk.image_count <= ARRAY_SIZE(window->vk.images));
 	for (uint32_t i = 0; i < window->vk.image_count; i++) {
-		VkResult result;
-
 		create_image_view(window->vk.dev, swapchain_images[i],
 			window->vk.format, &window->vk.images[i].image_view);
 		window->vk.images[i].image = swapchain_images[i];
@@ -320,10 +314,9 @@ create_swapchain(struct window *window)
 		const VkSemaphoreCreateInfo semaphore_create_info = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 		};
-		result = vkCreateSemaphore(window->vk.dev,
+		VK_CHECK(vkCreateSemaphore(window->vk.dev,
 			&semaphore_create_info, NULL,
-			&window->vk.images[i].render_done);
-		check_vk_success(result, "vkCreateSemaphore");
+			&window->vk.images[i].render_done));
 	}
 }
 
@@ -458,16 +451,13 @@ create_buffer(struct window *window, VkDeviceSize size,
 	VkBufferUsageFlags usage, VkMemoryPropertyFlags properties,
 	VkBuffer *buffer, VkDeviceMemory *buffer_memory)
 {
-	VkResult result;
-
 	const VkBufferCreateInfo buffer_info = {
 		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
 		.size = size,
 		.usage = usage,
 		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
 	};
-	result = vkCreateBuffer(window->vk.dev, &buffer_info, NULL, buffer);
-	check_vk_success(result, "vkCreateBuffer");
+	VK_CHECK(vkCreateBuffer(window->vk.dev, &buffer_info, NULL, buffer));
 
 	VkMemoryRequirements mem_requirements;
 	vkGetBufferMemoryRequirements(window->vk.dev, *buffer,
@@ -483,19 +473,17 @@ create_buffer(struct window *window, VkDeviceSize size,
 		.memoryTypeIndex = memory_type,
 	};
 
-	result = vkAllocateMemory(window->vk.dev, &alloc_info, NULL,
-		buffer_memory);
-	check_vk_success(result, "vkAllocateMemory");
+	VK_CHECK(vkAllocateMemory(window->vk.dev, &alloc_info, NULL,
+		buffer_memory));
 
-	result = vkBindBufferMemory(window->vk.dev, *buffer, *buffer_memory, 0);
-	check_vk_success(result, "vkBindBufferMemory");
+	VK_CHECK(vkBindBufferMemory(window->vk.dev, *buffer, *buffer_memory,
+		0));
 }
 
 static void
 create_descriptor_set_layout(struct window *window)
 {
 	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
-	VkResult result;
 
 	const VkDescriptorSetLayoutCreateInfo layout_info = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
@@ -512,16 +500,14 @@ create_descriptor_set_layout(struct window *window)
 				},
 			},
 	};
-	result = vkCreateDescriptorSetLayout(window->vk.dev, &layout_info, NULL,
-		&pipeline->descriptor_set_layout);
-	check_vk_success(result, "vkCreateDescriptorSetLayout");
+	VK_CHECK(vkCreateDescriptorSetLayout(window->vk.dev, &layout_info, NULL,
+		&pipeline->descriptor_set_layout));
 }
 
 static void
 create_descriptor_set(struct window *window, struct window_frame *frame)
 {
 	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
-	VkResult result;
 
 	const VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
@@ -529,9 +515,8 @@ create_descriptor_set(struct window *window, struct window_frame *frame)
 		.descriptorSetCount = 1,
 		.pSetLayouts = &pipeline->descriptor_set_layout,
 	};
-	result = vkAllocateDescriptorSets(window->vk.dev,
-		&descriptor_set_allocate_info, &frame->descriptor_set);
-	check_vk_success(result, "vkAllocateDescriptorSets");
+	VK_CHECK(vkAllocateDescriptorSets(window->vk.dev,
+		&descriptor_set_allocate_info, &frame->descriptor_set));
 
 	struct window_buffer *ubo_buffer = &frame->ubo_buffer;
 
@@ -557,7 +542,6 @@ static void
 create_pipeline(struct window *window)
 {
 	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
-	VkResult result;
 
 	VkShaderModule vs_module;
 	const VkShaderModuleCreateInfo vs_shader_module_create_info = {
@@ -565,8 +549,8 @@ create_pipeline(struct window *window)
 		.codeSize = sizeof(main_vert),
 		.pCode = (uint32_t *)main_vert,
 	};
-	vkCreateShaderModule(window->vk.dev, &vs_shader_module_create_info,
-		NULL, &vs_module);
+	VK_CHECK(vkCreateShaderModule(window->vk.dev,
+		&vs_shader_module_create_info, NULL, &vs_module));
 
 	VkShaderModule fs_module;
 	const VkShaderModuleCreateInfo fs_shader_module_create_info = {
@@ -574,8 +558,8 @@ create_pipeline(struct window *window)
 		.codeSize = sizeof(main_frag),
 		.pCode = (uint32_t *)main_frag,
 	};
-	vkCreateShaderModule(window->vk.dev, &fs_shader_module_create_info,
-		NULL, &fs_module);
+	VK_CHECK(vkCreateShaderModule(window->vk.dev,
+		&fs_shader_module_create_info, NULL, &fs_module));
 
 	const VkPipelineVertexInputStateCreateInfo pipeline_vertex_input_state_create_info = {
 		.sType =
@@ -679,9 +663,9 @@ create_pipeline(struct window *window)
 		.setLayoutCount = 1,
 		.pSetLayouts = &pipeline->descriptor_set_layout,
 	};
-	result = vkCreatePipelineLayout(window->vk.dev,
-		&pipeline_layout_create_info, NULL, &pipeline->pipeline_layout);
-	check_vk_success(result, "vkCreatePipelineLayout");
+	VK_CHECK(vkCreatePipelineLayout(window->vk.dev,
+		&pipeline_layout_create_info, NULL,
+		&pipeline->pipeline_layout));
 
 	const VkGraphicsPipelineCreateInfo graphics_pipeline_create_info = {
 		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
@@ -717,9 +701,8 @@ create_pipeline(struct window *window)
 		.flags = 0,
 		.layout = pipeline->pipeline_layout,
 	};
-	result = vkCreateGraphicsPipelines(window->vk.dev, VK_NULL_HANDLE, 1,
-		&graphics_pipeline_create_info, NULL, &pipeline->pipeline);
-	check_vk_success(result, "vkCreateGraphicsPipelines");
+	VK_CHECK(vkCreateGraphicsPipelines(window->vk.dev, VK_NULL_HANDLE, 1,
+		&graphics_pipeline_create_info, NULL, &pipeline->pipeline));
 
 	vkDestroyShaderModule(window->vk.dev, fs_module, NULL);
 	vkDestroyShaderModule(window->vk.dev, vs_module, NULL);
@@ -728,8 +711,6 @@ create_pipeline(struct window *window)
 static void
 create_vertex_buffer(struct window *window)
 {
-	VkResult result;
-
 	// clang-format off
 	const float vertices[] = {
 		-0.5f,  0.5f, 0.0,
@@ -752,9 +733,8 @@ create_vertex_buffer(struct window *window)
 		&window->vk.vertex_buffer.buffer,
 		&window->vk.vertex_buffer.mem);
 
-	result = vkMapMemory(window->vk.dev, window->vk.vertex_buffer.mem, 0,
-		vertex_buffer_size, 0, &window->vk.vertex_buffer.map);
-	check_vk_success(result, "vkMapMemory");
+	VK_CHECK(vkMapMemory(window->vk.dev, window->vk.vertex_buffer.mem, 0,
+		vertex_buffer_size, 0, &window->vk.vertex_buffer.map));
 
 	memcpy(window->vk.vertex_buffer.map, vertices, sizeof(vertices));
 	memcpy(window->vk.vertex_buffer.map + sizeof(vertices), colors,
@@ -765,8 +745,6 @@ static void
 create_descriptor_pool(struct window *window, VkDescriptorPool *descriptor_pool,
 	uint32_t base_count, uint32_t maxsets)
 {
-	VkResult result;
-
 	const VkDescriptorPoolSize pool_sizes[] = {
 		{
 			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -781,9 +759,8 @@ create_descriptor_pool(struct window *window, VkDescriptorPool *descriptor_pool,
 		.maxSets = maxsets,
 	};
 
-	result = vkCreateDescriptorPool(window->vk.dev, &pool_info, NULL,
-		descriptor_pool);
-	check_vk_success(result, "vkCreateDescriptorPool");
+	VK_CHECK(vkCreateDescriptorPool(window->vk.dev, &pool_info, NULL,
+		descriptor_pool));
 }
 
 static bool
@@ -817,17 +794,13 @@ load_inst_proc(struct window *window, const char *func, void *proc_ptr)
 static void
 create_instance(struct window *window)
 {
-	VkResult result;
-
 	uint32_t num_avail_inst_extns;
-	result = vkEnumerateInstanceExtensionProperties(NULL,
-		&num_avail_inst_extns, NULL);
-	check_vk_success(result, "vkEnumerateInstanceExtensionProperties");
+	VK_CHECK(vkEnumerateInstanceExtensionProperties(NULL,
+		&num_avail_inst_extns, NULL));
 	assert(num_avail_inst_extns > 0);
 	VkExtensionProperties avail_inst_extns[num_avail_inst_extns];
-	result = vkEnumerateInstanceExtensionProperties(NULL,
-		&num_avail_inst_extns, avail_inst_extns);
-	check_vk_success(result, "vkEnumerateInstanceExtensionProperties");
+	VK_CHECK(vkEnumerateInstanceExtensionProperties(NULL,
+		&num_avail_inst_extns, avail_inst_extns));
 
 	const char *inst_extns[] = {
 		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
@@ -859,8 +832,7 @@ create_instance(struct window *window)
 		.enabledExtensionCount = ARRAY_SIZE(inst_extns),
 	};
 
-	result = vkCreateInstance(&inst_create_info, NULL, &window->vk.inst);
-	check_vk_success(result, "vkCreateInstance");
+	VK_CHECK(vkCreateInstance(&inst_create_info, NULL, &window->vk.inst));
 
 	load_inst_proc(window, "vkCreateWaylandSurfaceKHR",
 		&window->vk.create_wayland_surface);
@@ -873,17 +845,13 @@ static void
 choose_physical_device(struct window *window)
 {
 	uint32_t n_phys_devs;
-	VkPhysicalDevice *phys_devs = NULL;
-	VkResult result;
 
-	result =
-		vkEnumeratePhysicalDevices(window->vk.inst, &n_phys_devs, NULL);
-	check_vk_success(result, "vkEnumeratePhysicalDevices");
+	VK_CHECK(vkEnumeratePhysicalDevices(window->vk.inst, &n_phys_devs,
+		NULL));
 	assert(n_phys_devs != 0);
-	phys_devs = znew_n(*phys_devs, n_phys_devs);
-	result = vkEnumeratePhysicalDevices(window->vk.inst, &n_phys_devs,
-		phys_devs);
-	check_vk_success(result, "vkEnumeratePhysicalDevices");
+	VkPhysicalDevice phys_devs[n_phys_devs];
+	VK_CHECK(vkEnumeratePhysicalDevices(window->vk.inst, &n_phys_devs,
+		phys_devs));
 
 	VkPhysicalDevice physical_device = VK_NULL_HANDLE;
 	/* Pick the first one */
@@ -904,19 +872,16 @@ choose_physical_device(struct window *window)
 	}
 
 	window->vk.phys_dev = physical_device;
-
-	free(phys_devs);
 }
 
 static void
 choose_queue_family(struct window *window)
 {
 	uint32_t n_props = 0;
-	VkQueueFamilyProperties *props = NULL;
 
 	vkGetPhysicalDeviceQueueFamilyProperties(window->vk.phys_dev, &n_props,
 		NULL);
-	props = znew_n(*props, n_props);
+	VkQueueFamilyProperties props[n_props];
 	vkGetPhysicalDeviceQueueFamilyProperties(window->vk.phys_dev, &n_props,
 		props);
 
@@ -937,23 +902,17 @@ choose_queue_family(struct window *window)
 	}
 
 	window->vk.queue_family = family_idx;
-
-	free(props);
 }
 
 static void
 create_device(struct window *window)
 {
-	VkResult result;
-
 	uint32_t num_avail_device_extns;
-	result = vkEnumerateDeviceExtensionProperties(window->vk.phys_dev, NULL,
-		&num_avail_device_extns, NULL);
-	check_vk_success(result, "vkEnumerateDeviceExtensionProperties");
+	VK_CHECK(vkEnumerateDeviceExtensionProperties(window->vk.phys_dev, NULL,
+		&num_avail_device_extns, NULL));
 	VkExtensionProperties avail_device_extns[num_avail_device_extns];
-	result = vkEnumerateDeviceExtensionProperties(window->vk.phys_dev, NULL,
-		&num_avail_device_extns, avail_device_extns);
-	check_vk_success(result, "vkEnumerateDeviceExtensionProperties");
+	VK_CHECK(vkEnumerateDeviceExtensionProperties(window->vk.phys_dev, NULL,
+		&num_avail_device_extns, avail_device_extns));
 
 	const char *device_extns[] = {
 		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
@@ -995,16 +954,13 @@ create_device(struct window *window)
 		.pNext = &features2_enable,
 	};
 
-	result = vkCreateDevice(window->vk.phys_dev, &device_create_info, NULL,
-		&window->vk.dev);
-	check_vk_success(result, "vkCreateDevice");
+	VK_CHECK(vkCreateDevice(window->vk.phys_dev, &device_create_info, NULL,
+		&window->vk.dev));
 }
 
 static void
 init_vulkan(struct window *window)
 {
-	VkResult result;
-
 	if (window->needs_buffer_geometry_update) {
 		update_buffer_geometry(window);
 	}
@@ -1030,9 +986,8 @@ init_vulkan(struct window *window)
 		.display = window->display->display,
 		.surface = window->surface,
 	};
-	result = window->vk.create_wayland_surface(window->vk.inst,
-		&wayland_surface_create_info, NULL, &window->vk.surface);
-	check_vk_success(result, "vkCreateWaylandSurfaceKHR");
+	VK_CHECK(window->vk.create_wayland_surface(window->vk.inst,
+		&wayland_surface_create_info, NULL, &window->vk.surface));
 
 	window->vk.format = choose_surface_format(window);
 
@@ -1050,9 +1005,8 @@ init_vulkan(struct window *window)
 			| VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
 		.queueFamilyIndex = window->vk.queue_family,
 	};
-	result = vkCreateCommandPool(window->vk.dev, &cmd_pool_create_info,
-		NULL, &window->vk.cmd_pool);
-	check_vk_success(result, "vkCreateCommandPool");
+	VK_CHECK(vkCreateCommandPool(window->vk.dev, &cmd_pool_create_info,
+		NULL, &window->vk.cmd_pool));
 
 	for (uint32_t i = 0; i < MAX_CONCURRENT_FRAMES; ++i) {
 		struct window_frame *frame = &window->vk.frames[i];
@@ -1061,9 +1015,8 @@ init_vulkan(struct window *window)
 			.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO,
 			.flags = VK_FENCE_CREATE_SIGNALED_BIT,
 		};
-		result = vkCreateFence(window->vk.dev, &fence_create_info, NULL,
-			&frame->fence);
-		check_vk_success(result, "vkCreateFence");
+		VK_CHECK(vkCreateFence(window->vk.dev, &fence_create_info, NULL,
+			&frame->fence));
 
 		const VkCommandBufferAllocateInfo cmd_alloc_info = {
 			.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
@@ -1071,16 +1024,14 @@ init_vulkan(struct window *window)
 			.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
 			.commandBufferCount = 1,
 		};
-		result = vkAllocateCommandBuffers(window->vk.dev,
-			&cmd_alloc_info, &frame->cmd_buffer);
-		check_vk_success(result, "vkAllocateCommandBuffers");
+		VK_CHECK(vkAllocateCommandBuffers(window->vk.dev,
+			&cmd_alloc_info, &frame->cmd_buffer));
 
 		const VkSemaphoreCreateInfo semaphore_create_info = {
 			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
 		};
-		result = vkCreateSemaphore(window->vk.dev,
-			&semaphore_create_info, NULL, &frame->image_acquired);
-		check_vk_success(result, "vkCreateSemaphore");
+		VK_CHECK(vkCreateSemaphore(window->vk.dev,
+			&semaphore_create_info, NULL, &frame->image_acquired));
 
 		struct window_buffer *ubo_buffer = &frame->ubo_buffer;
 
@@ -1092,9 +1043,8 @@ init_vulkan(struct window *window)
 				| VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			&ubo_buffer->buffer, &ubo_buffer->mem);
 
-		result = vkMapMemory(window->vk.dev, ubo_buffer->mem, 0,
-			ubo_size, 0, &ubo_buffer->map);
-		check_vk_success(result, "vkMapMemory");
+		VK_CHECK(vkMapMemory(window->vk.dev, ubo_buffer->mem, 0,
+			ubo_size, 0, &ubo_buffer->map));
 
 		create_descriptor_set(window, frame);
 	}
@@ -1248,15 +1198,12 @@ static void
 draw_triangle(struct window *window, struct window_frame *frame,
 	struct window_image *image)
 {
-	VkResult result;
+	VkCommandBuffer cmd_buffer = frame->cmd_buffer;
 
 	const VkCommandBufferBeginInfo command_buffer_begin_info = {
 		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.flags = 0};
-
-	VkCommandBuffer cmd_buffer = frame->cmd_buffer;
-	result = vkBeginCommandBuffer(cmd_buffer, &command_buffer_begin_info);
-	check_vk_success(result, "vkBeginCommandBuffer");
+	VK_CHECK(vkBeginCommandBuffer(cmd_buffer, &command_buffer_begin_info));
 
 	const VkImageMemoryBarrier barrier_to_color = {
 		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
@@ -1373,8 +1320,7 @@ draw_triangle(struct window *window, struct window_frame *frame,
 		VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, NULL, 0, NULL, 1,
 		&barrier_to_present);
 
-	result = vkEndCommandBuffer(cmd_buffer);
-	check_vk_success(result, "vkEndCommandBuffer");
+	VK_CHECK(vkEndCommandBuffer(cmd_buffer));
 
 	const VkPipelineStageFlags wait_stages[] = {
 		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
@@ -1390,8 +1336,8 @@ draw_triangle(struct window *window, struct window_frame *frame,
 		.pSignalSemaphores = &image->render_done,
 	};
 
-	result = vkQueueSubmit(window->vk.queue, 1, &submit_info, frame->fence);
-	check_vk_success(result, "vkQueueSubmit");
+	VK_CHECK(vkQueueSubmit(window->vk.queue, 1, &submit_info,
+		frame->fence));
 }
 
 static void
@@ -1579,15 +1525,8 @@ redraw(struct window *window)
 	pnext(&present_info, &present_regions);
 
 	result = vkQueuePresentKHR(window->vk.queue, &present_info);
-
 	if (result != VK_SUCCESS) {
 		return;
-	}
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
-		recreate_swapchain(window);
-		return;
-	} else if (result != VK_SUCCESS) {
-		assert(0);
 	}
 
 	window->frames++;
@@ -2056,8 +1995,6 @@ main(int argc, char **argv)
 		ret = wl_display_dispatch_pending(display.display);
 		redraw(&window);
 	}
-
-	fprintf(stderr, "simple-vulkan exiting\n");
 
 	destroy_surface(&window);
 	destroy_swapchain(&window);
