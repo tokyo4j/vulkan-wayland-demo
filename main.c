@@ -107,8 +107,6 @@ struct window_vulkan {
 
 	struct window_buffer vertex_buffer;
 
-	bool has_incremental_present;
-
 	PFN_vkGetPhysicalDeviceWaylandPresentationSupportKHR
 		get_wayland_presentation_support;
 	PFN_vkCreateWaylandSurfaceKHR create_wayland_surface;
@@ -819,39 +817,29 @@ load_inst_proc(struct window *window, const char *func, void *proc_ptr)
 static void
 create_instance(struct window *window)
 {
-	uint32_t num_avail_inst_extns;
-	uint32_t num_inst_extns = 0;
 	VkResult result;
 
+	uint32_t num_avail_inst_extns;
 	result = vkEnumerateInstanceExtensionProperties(NULL,
 		&num_avail_inst_extns, NULL);
 	check_vk_success(result, "vkEnumerateInstanceExtensionProperties");
 	assert(num_avail_inst_extns > 0);
-	VkExtensionProperties *avail_inst_extns =
-		znew_n(*avail_inst_extns, num_avail_inst_extns);
+	VkExtensionProperties avail_inst_extns[num_avail_inst_extns];
 	result = vkEnumerateInstanceExtensionProperties(NULL,
 		&num_avail_inst_extns, avail_inst_extns);
 	check_vk_success(result, "vkEnumerateInstanceExtensionProperties");
 
-	const char **inst_extns = znew_n(*inst_extns, num_avail_inst_extns);
-	inst_extns[num_inst_extns++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
-	inst_extns[num_inst_extns++] =
-		VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME;
-	inst_extns[num_inst_extns++] =
-		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME;
-	inst_extns[num_inst_extns++] = VK_KHR_SURFACE_EXTENSION_NAME;
-	inst_extns[num_inst_extns++] = VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME;
+	const char *inst_extns[] = {
+		VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
+		VK_KHR_EXTERNAL_MEMORY_CAPABILITIES_EXTENSION_NAME,
+		VK_KHR_GET_PHYSICAL_DEVICE_PROPERTIES_2_EXTENSION_NAME,
+		VK_KHR_SURFACE_EXTENSION_NAME,
+		VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
+	};
 
-	for (uint32_t i = 0; i < num_inst_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_inst_extns; j++) {
-			if (strcmp(inst_extns[i],
-				    avail_inst_extns[j].extensionName)
-				== 0) {
-				break;
-			}
-		}
-		if (j == num_avail_inst_extns) {
+	for (uint32_t i = 0; i < ARRAY_SIZE(inst_extns); i++) {
+		if (!check_extension(avail_inst_extns, num_avail_inst_extns,
+			    inst_extns[i])) {
 			fprintf(stderr, "Unsupported instance extension: %s\n",
 				inst_extns[i]);
 			abort();
@@ -868,7 +856,7 @@ create_instance(struct window *window)
 		.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
 		.pApplicationInfo = &app_info,
 		.ppEnabledExtensionNames = inst_extns,
-		.enabledExtensionCount = num_inst_extns,
+		.enabledExtensionCount = ARRAY_SIZE(inst_extns),
 	};
 
 	result = vkCreateInstance(&inst_create_info, NULL, &window->vk.inst);
@@ -879,9 +867,6 @@ create_instance(struct window *window)
 	load_inst_proc(window,
 		"vkGetPhysicalDeviceWaylandPresentationSupportKHR",
 		&window->vk.get_wayland_presentation_support);
-
-	free(avail_inst_extns);
-	free(inst_extns);
 }
 
 static void
@@ -959,40 +944,25 @@ choose_queue_family(struct window *window)
 static void
 create_device(struct window *window)
 {
-	uint32_t num_avail_device_extns;
-	uint32_t num_device_extns = 0;
 	VkResult result;
 
+	uint32_t num_avail_device_extns;
 	result = vkEnumerateDeviceExtensionProperties(window->vk.phys_dev, NULL,
 		&num_avail_device_extns, NULL);
 	check_vk_success(result, "vkEnumerateDeviceExtensionProperties");
-	VkExtensionProperties *avail_device_extns =
-		znew_n(*avail_device_extns, num_avail_device_extns);
+	VkExtensionProperties avail_device_extns[num_avail_device_extns];
 	result = vkEnumerateDeviceExtensionProperties(window->vk.phys_dev, NULL,
 		&num_avail_device_extns, avail_device_extns);
 	check_vk_success(result, "vkEnumerateDeviceExtensionProperties");
 
-	const char **device_extns =
-		znew_n(*device_extns, num_avail_device_extns);
-	device_extns[num_device_extns++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
+	const char *device_extns[] = {
+		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+		VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME,
+	};
 
-	if (check_extension(avail_device_extns, num_avail_device_extns,
-		    VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME)) {
-		device_extns[num_device_extns++] =
-			VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME;
-		window->vk.has_incremental_present = true;
-	}
-
-	for (uint32_t i = 0; i < num_device_extns; i++) {
-		uint32_t j;
-		for (j = 0; j < num_avail_device_extns; j++) {
-			if (strcmp(device_extns[i],
-				    avail_device_extns[j].extensionName)
-				== 0) {
-				break;
-			}
-		}
-		if (j == num_avail_device_extns) {
+	for (uint32_t i = 0; i < ARRAY_SIZE(device_extns); i++) {
+		if (!check_extension(avail_device_extns, num_avail_device_extns,
+			    device_extns[i])) {
 			fprintf(stderr, "Unsupported device extension: %s\n",
 				device_extns[i]);
 			abort();
@@ -1020,7 +990,7 @@ create_device(struct window *window)
 		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
 		.queueCreateInfoCount = 1,
 		.pQueueCreateInfos = &device_queue_info,
-		.enabledExtensionCount = num_device_extns,
+		.enabledExtensionCount = ARRAY_SIZE(device_extns),
 		.ppEnabledExtensionNames = device_extns,
 		.pNext = &features2_enable,
 	};
@@ -1028,9 +998,6 @@ create_device(struct window *window)
 	result = vkCreateDevice(window->vk.phys_dev, &device_create_info, NULL,
 		&window->vk.dev);
 	check_vk_success(result, "vkCreateDevice");
-
-	free(avail_device_extns);
-	free(device_extns);
 }
 
 static void
@@ -1129,10 +1096,6 @@ init_vulkan(struct window *window)
 		check_vk_success(result, "vkMapMemory");
 
 		create_descriptor_set(window, frame);
-	}
-
-	if (window->vk.has_incremental_present) {
-		printf("has %s\n", VK_KHR_INCREMENTAL_PRESENT_EXTENSION_NAME);
 	}
 }
 
@@ -1413,7 +1376,8 @@ draw_triangle(struct window *window, struct window_frame *frame,
 	check_vk_success(result, "vkEndCommandBuffer");
 
 	const VkPipelineStageFlags wait_stages[] = {
-		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT};
+		VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+	};
 	const VkSubmitInfo submit_info = {
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.waitSemaphoreCount = 1,
@@ -1587,34 +1551,30 @@ redraw(struct window *window)
 		.pResults = NULL,
 	};
 
-	if (window->vk.has_incremental_present) {
-		const VkRectLayerKHR rect = {
-			.offset =
-				{
-					window->buffer_size.width / 4 - 1,
-					window->buffer_size.height / 4 - 1,
-				},
-			.extent =
-				{
-					window->buffer_size.width / 2 + 2,
-					window->buffer_size.height / 2 + 2,
-				},
-		};
-		const VkPresentRegionKHR region = {
-			.rectangleCount = 1,
-			.pRectangles = &rect,
-		};
-		VkPresentRegionsKHR present_regions = {
-			.sType = VK_STRUCTURE_TYPE_PRESENT_REGIONS_KHR,
-			.swapchainCount = 1,
-			.pRegions = &region,
-		};
-		pnext(&present_info, &present_regions);
+	const VkRectLayerKHR rect = {
+		.offset =
+			{
+				window->buffer_size.width / 4 - 1,
+				window->buffer_size.height / 4 - 1,
+			},
+		.extent =
+			{
+				window->buffer_size.width / 2 + 2,
+				window->buffer_size.height / 2 + 2,
+			},
+	};
+	const VkPresentRegionKHR region = {
+		.rectangleCount = 1,
+		.pRectangles = &rect,
+	};
+	VkPresentRegionsKHR present_regions = {
+		.sType = VK_STRUCTURE_TYPE_PRESENT_REGIONS_KHR,
+		.swapchainCount = 1,
+		.pRegions = &region,
+	};
+	pnext(&present_info, &present_regions);
 
-		result = vkQueuePresentKHR(window->vk.queue, &present_info);
-	} else {
-		result = vkQueuePresentKHR(window->vk.queue, &present_info);
-	}
+	result = vkQueuePresentKHR(window->vk.queue, &present_info);
 
 	if (result != VK_SUCCESS)
 		return;
