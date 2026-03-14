@@ -492,6 +492,32 @@ create_buffer(struct window *window, VkDeviceSize size,
 }
 
 static void
+create_descriptor_set_layout(struct window *window)
+{
+	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
+	VkResult result;
+
+	const VkDescriptorSetLayoutCreateInfo layout_info = {
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.bindingCount = 1,
+		.pBindings =
+			(VkDescriptorSetLayoutBinding[]){
+				{
+					.binding = 0,
+					.descriptorType =
+						VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+					.descriptorCount = 1,
+					.stageFlags =
+						VK_SHADER_STAGE_VERTEX_BIT,
+				},
+			},
+	};
+	result = vkCreateDescriptorSetLayout(window->vk.dev, &layout_info, NULL,
+		&pipeline->descriptor_set_layout);
+	check_vk_success(result, "vkCreateDescriptorSetLayout");
+}
+
+static void
 create_descriptor_set(struct window *window, struct window_frame *frame)
 {
 	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
@@ -525,33 +551,6 @@ create_descriptor_set(struct window *window, struct window_frame *frame)
 
 	vkUpdateDescriptorSets(window->vk.dev, ARRAY_SIZE(descriptor_writes),
 		descriptor_writes, 0, NULL);
-}
-
-static void
-create_descriptor_set_layout(struct window *window)
-{
-	struct window_vulkan_pipeline *pipeline = &window->vk.pipeline;
-
-	VkResult result;
-
-	const VkDescriptorSetLayoutBinding vs_ubo_layout_binding = {
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-	};
-	const VkDescriptorSetLayoutBinding bindings[] = {
-		vs_ubo_layout_binding,
-	};
-	const VkDescriptorSetLayoutCreateInfo layout_info = {
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.bindingCount = ARRAY_SIZE(bindings),
-		.pBindings = bindings,
-	};
-
-	result = vkCreateDescriptorSetLayout(window->vk.dev, &layout_info, NULL,
-		&pipeline->descriptor_set_layout);
-	check_vk_success(result, "vkCreateDescriptorSetLayout");
 }
 
 static void
