@@ -290,12 +290,13 @@ create_swapchain(struct window *window)
 	};
 	if (surface_caps.supportedCompositeAlpha
 			& VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR
-		&& !window->opaque)
+		&& !window->opaque) {
 		swapchain_create_info.compositeAlpha =
 			VK_COMPOSITE_ALPHA_PRE_MULTIPLIED_BIT_KHR;
-	else
+	} else {
 		swapchain_create_info.compositeAlpha =
 			VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+	}
 
 	swapchain_create_info.presentMode = window->vk.present_mode;
 	vkCreateSwapchainKHR(window->vk.dev, &swapchain_create_info, NULL,
@@ -1005,8 +1006,9 @@ init_vulkan(struct window *window)
 {
 	VkResult result;
 
-	if (window->needs_buffer_geometry_update)
+	if (window->needs_buffer_geometry_update) {
 		update_buffer_geometry(window);
+	}
 
 	create_instance(window);
 
@@ -1437,10 +1439,11 @@ create_surface(struct window *window)
 	xdg_toplevel_set_app_id(window->xdg_toplevel,
 		"org.freedesktop.weston.simple-vulkan");
 
-	if (window->fullscreen)
+	if (window->fullscreen) {
 		xdg_toplevel_set_fullscreen(window->xdg_toplevel, NULL);
-	else if (window->maximized)
+	} else if (window->maximized) {
 		xdg_toplevel_set_maximized(window->xdg_toplevel);
+	}
 
 	window->wait_for_configure = true;
 	wl_surface_commit(window->surface);
@@ -1449,10 +1452,12 @@ create_surface(struct window *window)
 static void
 destroy_surface(struct window *window)
 {
-	if (window->xdg_toplevel)
+	if (window->xdg_toplevel) {
 		xdg_toplevel_destroy(window->xdg_toplevel);
-	if (window->xdg_surface)
+	}
+	if (window->xdg_surface) {
 		xdg_surface_destroy(window->xdg_surface);
+	}
 	wl_surface_destroy(window->surface);
 }
 
@@ -1576,8 +1581,9 @@ redraw(struct window *window)
 
 	result = vkQueuePresentKHR(window->vk.queue, &present_info);
 
-	if (result != VK_SUCCESS)
+	if (result != VK_SUCCESS) {
 		return;
+	}
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
 		recreate_swapchain(window);
 		return;
@@ -1638,9 +1644,10 @@ pointer_handle_button(void *data, struct wl_pointer *wl_pointer,
 		return;
 	}
 
-	if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED)
+	if (button == BTN_LEFT && state == WL_POINTER_BUTTON_STATE_PRESSED) {
 		xdg_toplevel_move(display->window->xdg_toplevel, display->seat,
 			serial);
+	}
 }
 
 static void
