@@ -48,7 +48,7 @@ struct display {
 	struct wp_fractional_scale_manager_v1 *fractional_scale_manager;
 	struct window *window;
 
-	struct wl_list output_list; /* struct output::link */
+	struct wl_list outputs; /* struct output::link */
 };
 
 struct geometry {
@@ -133,21 +133,21 @@ struct window {
 
 	struct window_vulkan vk;
 
-	struct wl_list window_output_list; /* struct window_output::link */
+	struct wl_list window_outputs; /* struct window_output::link */
 };
 
 struct output {
 	struct display *display;
 	struct wl_output *wl_output;
 	uint32_t name;
-	struct wl_list link; /* struct display::output_list */
+	struct wl_list link; /* struct display::outputs */
 	enum wl_output_transform transform;
 	int32_t scale;
 };
 
 struct window_output {
 	struct output *output;
-	struct wl_list link; /* struct window::window_output_list */
+	struct wl_list link; /* struct window::window_outputs */
 };
 
 static inline void
@@ -181,7 +181,7 @@ compute_buffer_scale(struct window *window)
 	struct window_output *window_output;
 	int32_t scale = 1;
 
-	wl_list_for_each(window_output, &window->window_output_list, link) {
+	wl_list_for_each(window_output, &window->window_outputs, link) {
 		if (window_output->output->scale > scale)
 			scale = window_output->output->scale;
 	}
@@ -195,7 +195,7 @@ compute_buffer_transform(struct window *window)
 	struct window_output *window_output;
 	enum wl_output_transform transform = WL_OUTPUT_TRANSFORM_NORMAL;
 
-	wl_list_for_each(window_output, &window->window_output_list, link) {
+	wl_list_for_each(window_output, &window->window_outputs, link) {
 		/* If the surface spans over multiple outputs the optimal
 		 * transform value can be ambiguous. Thus just return the value
 		 * from the oldest entered output.
@@ -1207,7 +1207,7 @@ add_window_output(struct window *window, struct wl_output *wl_output)
 	struct output *output_found = NULL;
 	struct window_output *window_output;
 
-	wl_list_for_each(output, &window->display->output_list, link) {
+	wl_list_for_each(output, &window->display->outputs, link) {
 		if (output->wl_output == wl_output) {
 			output_found = output;
 			break;
@@ -1221,7 +1221,7 @@ add_window_output(struct window *window, struct wl_output *wl_output)
 	window_output = znew(*window_output);
 	window_output->output = output_found;
 
-	wl_list_insert(window->window_output_list.prev, &window_output->link);
+	wl_list_insert(window->window_outputs.prev, &window_output->link);
 	window->needs_buffer_geometry_update = true;
 }
 
@@ -1231,7 +1231,7 @@ destroy_window_output(struct window *window, struct wl_output *wl_output)
 	struct window_output *window_output;
 	struct window_output *window_output_found = NULL;
 
-	wl_list_for_each(window_output, &window->window_output_list, link) {
+	wl_list_for_each(window_output, &window->window_outputs, link) {
 		if (window_output->output->wl_output == wl_output) {
 			window_output_found = window_output;
 			break;
@@ -1861,7 +1861,7 @@ display_add_output(struct display *d, uint32_t name)
 	output->wl_output =
 		wl_registry_bind(d->registry, name, &wl_output_interface, 2);
 	output->name = name;
-	wl_list_insert(d->output_list.prev, &output->link);
+	wl_list_insert(d->outputs.prev, &output->link);
 
 	wl_output_add_listener(output->wl_output, &output_listener, output);
 }
@@ -1881,7 +1881,7 @@ display_destroy_outputs(struct display *d)
 	struct output *tmp;
 	struct output *output;
 
-	wl_list_for_each_safe(output, tmp, &d->output_list, link)
+	wl_list_for_each_safe(output, tmp, &d->outputs, link)
 		display_destroy_output(d, output);
 }
 
@@ -1929,7 +1929,7 @@ registry_handle_global_remove(void *data, struct wl_registry *registry,
 	struct display *d = data;
 	struct output *output;
 
-	wl_list_for_each(output, &d->output_list, link) {
+	wl_list_for_each(output, &d->outputs, link) {
 		if (output->name == name) {
 			display_destroy_output(d, output);
 			break;
@@ -1989,8 +1989,8 @@ main(int argc, char **argv)
 	window.fullscreen_ratio = false;
 	window.vk.present_mode = VK_PRESENT_MODE_FIFO_KHR;
 
-	wl_list_init(&display.output_list);
-	wl_list_init(&window.window_output_list);
+	wl_list_init(&display.outputs);
+	wl_list_init(&window.window_outputs);
 
 	for (i = 1; i < argc; i++) {
 		if (strcmp("-d", argv[i]) == 0 && i + 1 < argc) {
