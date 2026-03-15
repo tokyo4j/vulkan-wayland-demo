@@ -226,6 +226,25 @@ create_image_view(VkDevice device, VkImage image, VkFormat format,
 	VK_CHECK(vkCreateImageView(device, &view_info, NULL, image_view));
 }
 
+static bool
+surface_supports_present_mode(struct window *window, VkPresentModeKHR mode)
+{
+	uint32_t present_mode_count;
+	vkGetPhysicalDeviceSurfacePresentModesKHR(window->vk.phys_dev,
+		window->vk.surface, &present_mode_count, NULL);
+	VkPresentModeKHR present_modes[present_mode_count];
+	vkGetPhysicalDeviceSurfacePresentModesKHR(window->vk.phys_dev,
+		window->vk.surface, &present_mode_count, present_modes);
+	assert(window->vk.present_mode >= 0 && window->vk.present_mode < 4);
+
+	for (size_t i = 0; i < present_mode_count; ++i) {
+		if (present_modes[i] == mode) {
+			return true;
+		}
+	}
+	return false;
+}
+
 static void
 create_swapchain(struct window *window)
 {
@@ -233,40 +252,26 @@ create_swapchain(struct window *window)
 	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(window->vk.phys_dev,
 		window->vk.surface, &surface_caps);
 
-	VkBool32 supported;
+	VkBool32 surface_supported;
 	vkGetPhysicalDeviceSurfaceSupportKHR(window->vk.phys_dev, 0,
-		window->vk.surface, &supported);
-	assert(supported);
+		window->vk.surface, &surface_supported);
+	assert(surface_supported);
 
-	uint32_t present_mode_count;
-	vkGetPhysicalDeviceSurfacePresentModesKHR(window->vk.phys_dev,
-		window->vk.surface, &present_mode_count, NULL);
-	VkPresentModeKHR present_modes[present_mode_count];
-	vkGetPhysicalDeviceSurfacePresentModesKHR(window->vk.phys_dev,
-		window->vk.surface, &present_mode_count, present_modes);
-
-	assert(window->vk.present_mode >= 0 && window->vk.present_mode < 4);
-	supported = false;
-	for (size_t i = 0; i < present_mode_count; ++i) {
-		if (present_modes[i] == window->vk.present_mode) {
-			supported = true;
-			break;
-		}
-	}
-
-	if (!supported) {
+	if (!surface_supports_present_mode(window, window->vk.present_mode)) {
 		fprintf(stderr, "Present mode %d unsupported\n",
 			window->vk.present_mode);
 		abort();
 	}
 
 	uint32_t min_image_count = 2;
-	if (min_image_count < surface_caps.minImageCount)
+	if (min_image_count < surface_caps.minImageCount) {
 		min_image_count = surface_caps.minImageCount;
+	}
 
 	if (surface_caps.maxImageCount > 0
-		&& min_image_count > surface_caps.maxImageCount)
+		&& min_image_count > surface_caps.maxImageCount) {
 		min_image_count = surface_caps.maxImageCount;
+	}
 
 	VkSwapchainCreateInfoKHR swapchain_create_info = {
 		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
@@ -857,9 +862,7 @@ choose_physical_device(struct window *window)
 	/* Pick the first one */
 	for (uint32_t i = 0; i < n_phys_devs; ++i) {
 		VkPhysicalDeviceProperties props;
-
 		vkGetPhysicalDeviceProperties(phys_devs[i], &props);
-
 		if (physical_device == VK_NULL_HANDLE) {
 			physical_device = phys_devs[i];
 			break;
@@ -877,8 +880,7 @@ choose_physical_device(struct window *window)
 static void
 choose_queue_family(struct window *window)
 {
-	uint32_t n_props = 0;
-
+	uint32_t n_props;
 	vkGetPhysicalDeviceQueueFamilyProperties(window->vk.phys_dev, &n_props,
 		NULL);
 	VkQueueFamilyProperties props[n_props];
@@ -975,11 +977,8 @@ init_vulkan(struct window *window)
 
 	vkGetDeviceQueue(window->vk.dev, 0, 0, &window->vk.queue);
 
-	if (!window->vk.get_wayland_presentation_support(window->vk.phys_dev, 0,
-		    window->display->display)) {
-		fprintf(stderr,
-			"Vulkan not supported on given Wayland surface");
-	}
+	assert(window->vk.get_wayland_presentation_support(window->vk.phys_dev,
+		0, window->display->display));
 
 	const VkWaylandSurfaceCreateInfoKHR wayland_surface_create_info = {
 		.sType = VK_STRUCTURE_TYPE_WAYLAND_SURFACE_CREATE_INFO_KHR,
@@ -1843,17 +1842,10 @@ registry_handle_global(void *data, struct wl_registry *registry, uint32_t name,
 	} else if (strcmp(interface, wl_shm_interface.name) == 0) {
 		d->shm = wl_registry_bind(registry, name, &wl_shm_interface, 1);
 		d->cursor_theme = wl_cursor_theme_load(NULL, 32, d->shm);
-		if (!d->cursor_theme) {
-			fprintf(stderr, "unable to load default theme\n");
-			return;
-		}
+		assert(d->cursor_theme);
 		d->default_cursor =
 			wl_cursor_theme_get_cursor(d->cursor_theme, "left_ptr");
-		if (!d->default_cursor) {
-			fprintf(stderr,
-				"unable to load default left pointer\n");
-			// TODO: abort ?
-		}
+		assert(d->default_cursor);
 	} else if (strcmp(interface, wl_output_interface.name) == 0
 		&& version >= 2) {
 		display_add_output(d, name);
@@ -1960,12 +1952,7 @@ main(int argc, char **argv)
 		&display);
 
 	wl_display_roundtrip(display.display);
-
-	if (!display.wm_base) {
-		fprintf(stderr,
-			"xdg-shell support required. simple-vulkan exiting\n");
-		goto out_no_xdg_shell;
-	}
+	assert(display.wm_base);
 
 	create_surface(&window);
 
@@ -2001,7 +1988,7 @@ main(int argc, char **argv)
 	fini_vulkan(&window);
 
 	wl_surface_destroy(display.cursor_surface);
-out_no_xdg_shell:
+
 	display_destroy_outputs(&display);
 
 	if (display.cursor_theme) {
